@@ -33,6 +33,10 @@ func (ifc *ImportFolderCmd) run(cmd *cobra.Command, args []string, app *app.Appl
 	}
 
 	ifc.app = app
+	if ifc.app.Jnl() == nil {
+		ifc.app.SetJnl(fileevent.NewRecorder(app.Log().Logger))
+	}
+	ifc.log = ifc.app.Jnl()
 	log := app.Log()
 	ifc.tz = app.GetTZ()
 	ifc.InclusionFlags.SetIncludeTypeExtensions()
@@ -46,6 +50,8 @@ func (ifc *ImportFolderCmd) run(cmd *cobra.Command, args []string, app *app.Appl
 		log.Message("No file found matching the pattern: %s", strings.Join(args, ","))
 		return errors.New("No file found matching the pattern: " + strings.Join(args, ","))
 	}
+
+	ifc.fsyss = fsyss
 
 	defer func() {
 		if err := fshelper.CloseFSs(fsyss); err != nil {
