@@ -191,7 +191,7 @@ func (ifc *ImportFolderCmd) parseDir(ctx context.Context, fsys fs.FS, dir string
 			continue
 		}
 
-		if ifc.BannedFiles.Match(name) {
+		if matchesBanned(ifc.BannedFiles, name, entry.IsDir()) {
 			ifc.log.Record(ctx, fileevent.DiscoveredDiscarded, fshelper.FSName(fsys, entry.Name()), "reason", "banned file")
 			continue
 		}
@@ -267,7 +267,7 @@ func (ifc *ImportFolderCmd) parseDir(ctx context.Context, fsys fs.FS, dir string
 		base := entry.Name()
 		name := path.Join(dir, base)
 		if entry.IsDir() {
-			if ifc.BannedFiles.Match(name) {
+			if matchesBanned(ifc.BannedFiles, name, true) {
 				ifc.log.Record(ctx, fileevent.DiscoveredDiscarded, fshelper.FSName(fsys, name), "reason", "banned folder")
 				continue // Skip this folder, no error
 			}
@@ -477,6 +477,28 @@ func checkExistSideCar(fsys fs.FS, name string, ext string) (string, error) {
 		return l[0], nil
 	}
 	return "", nil
+}
+
+type bannedMatcher interface {
+	Match(string) bool
+}
+
+func matchesBanned(m bannedMatcher, name string, isDir bool) bool {
+	if m.Match(name) {
+		return true
+	}
+	if trimmed := strings.TrimSuffix(name, "/"); trimmed != name {
+		if m.Match(trimmed) {
+			return true
+		}
+		if isDir && m.Match(trimmed+"/") {
+			return true
+		}
+	}
+	if isDir && !strings.HasSuffix(name, "/") && m.Match(name+"/") {
+		return true
+	}
+	return false
 }
 
 func (ifc *ImportFolderCmd) assetFromFile(_ context.Context, fsys fs.FS, name string) (*assets.Asset, error) {
