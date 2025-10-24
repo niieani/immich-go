@@ -34,6 +34,12 @@ immich-go archive from-immich --server=http://your-ip:2283 --api-key=your-api-ke
 - A running Immich server with API access
 - API key with appropriate permissions ([see full list](docs/installation.md#api-permissions))
 
+## 🙈 Skip System Files
+
+- Use `--ban-file` to exclude junk artifacts. Patterns ending with `/` apply to directories (for example, `--ban-file .Spotlight-V100/`), while patterns without the trailing slash apply to individual files (for example, `--ban-file .DS_Store`).
+- Immich-Go ships with sensible defaults that already skip common clutter such as `@eaDir/`, `@__thumb/`, `SYNOFILE_THUMB_*.*`, `Lightroom Catalog/`, `thumbnails/`, `.DS_Store`, `/._*`, `.Spotlight-V100/`, `.photostructure/`, and `Recently Deleted/`.
+- Add additional patterns as needed to keep uploads focused on real photos. See the [banned files reference](docs/technical.md#banned-files) for details.
+
 ## 📚 Documentation
 
 | Topic | Description |
