@@ -61,7 +61,7 @@ The final stage is the upload itself and the integration with Immich’s feature
 
 #### The Upload Process
 
-1.  **Duplicate Checking**: Before uploading, `immich-go` builds an index of all assets on your Immich server. For each local file, it calculates a checksum and compares it to the index.
+1.  **Duplicate Checking**: Before uploading, `immich-go` builds an index of all assets on your Immich server. For each local file, it calculates a checksum and compares it to the index. You can optionally preload a checksum cache with `--checksum-cache <file>` to skip re-hashing items you've already uploaded or that were seen on the server in previous runs.
     *   If an identical file (same checksum and size) exists, the local file is skipped.
     *   If `--overwrite` is enabled, `immich-go` can replace a server asset if the local one is of higher quality (e.g., better resolution).
 
