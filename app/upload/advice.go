@@ -98,6 +98,11 @@ func (ii *immichIndex) addLocalAsset(ia *assets.Asset) (*assets.Asset, bool) {
 	ii.lock.Lock()
 	defer ii.lock.Unlock()
 
+	if ii.uploadsChecksum.Contains(ia.Checksum) {
+		// Already marked as processed via checksum cache; do not add again.
+		return nil, false
+	}
+
 	if existing, ok := ii.immichAssets.Load(ia.ID); ok {
 		return existing, false
 	}
@@ -128,7 +133,12 @@ func (ii *immichIndex) add(a *assets.Asset, local bool) *assets.Asset {
 		panic("asset checksum already exists")
 	}
 
-	if ii.uploadsChecksum.Contains(a.Checksum) {
+	// A checksum may already be present in uploadsChecksum when a user preloads
+	// a checksum cache via --checksum-cache. That set represents "already
+	// processed" assets and legitimately overlaps with the server index. Do not
+	// treat it as a fatal condition for server assets; only enforce uniqueness
+	// for local additions (handled by addLocalAsset).
+	if local && ii.uploadsChecksum.Contains(a.Checksum) {
 		panic("asset checksum already exists in uploads")
 	}
 
@@ -255,6 +265,10 @@ func (ii *immichIndex) ShouldUpload(la *assets.Asset, upCmd *UpCmd) (*Advice, er
 	checksum, err := la.GetChecksum()
 	if err != nil {
 		return nil, err
+	}
+
+	if ii.isAlreadyProcessed(checksum) {
+		return ii.adviceAlreadyProcessed(&assets.Asset{Checksum: checksum}), nil
 	}
 
 	if sa, ok := ii.byChecksum.Load(checksum); ok {

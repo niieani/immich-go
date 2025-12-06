@@ -163,6 +163,7 @@ The following environment variables can be used to configure `immich-go`.
 | `IMMICH_GO_UPLOAD_NO_UI` | `--no-ui` | `false` | Disable the user interface |
 | `IMMICH_GO_UPLOAD_OVERWRITE` | `--overwrite` | `false` | Always overwrite files on the server with local versions |
 | `IMMICH_GO_UPLOAD_PAUSE_IMMICH_JOBS` | `--pause-immich-jobs` | `true` | Pause Immich background jobs during upload operations |
+| `IMMICH_GO_UPLOAD_CHECKSUM_CACHE` | `--checksum-cache` |  | Path to newline-delimited checksum cache to speed repeat scans |
 | `IMMICH_GO_UPLOAD_SERVER` | `--server` |  | Immich server address (example http://your-ip:2283 or https://your-domain) |
 | `IMMICH_GO_UPLOAD_SESSION_TAG` | `--session-tag` | `false` | Tag uploaded photos with a tag "{immich-go}/YYYY-MM-DD HH-MM-SS" |
 | `IMMICH_GO_UPLOAD_SKIP_VERIFY_SSL` | `--skip-verify-ssl` | `false` | Skip SSL verification |
@@ -274,4 +275,3 @@ The following environment variables can be used to configure `immich-go`.
 | `IMMICH_GO_UPLOAD_FROM_PICASA_INCLUDE_TYPE` | `--include-type` |  | Single file type to include. (VIDEO or IMAGE) (default: all) |
 | `IMMICH_GO_UPLOAD_FROM_PICASA_INTO_ALBUM` | `--into-album` |  | Specify an album to import all files into |
 | `IMMICH_GO_UPLOAD_FROM_PICASA_RECURSIVE` | `--recursive` | `true` | Explore the folder and all its sub-folders |
-

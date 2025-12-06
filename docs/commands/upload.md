@@ -38,6 +38,7 @@ All upload sub-commands require these connection parameters:
 | `--overwrite`         | `false`   | Replace existing files on server                                    |
 | `--pause-immich-jobs` | `true`    | Pause server jobs during upload                                     |
 | `--on-errors`         | `stop`    | Action on errors: `stop`, `continue`, or tolerated number of errors |
+| `--checksum-cache`    | _(unset)_ | Path to a newline-delimited file of known checksums (uploaded or on server); preloads on start and is rewritten on exit to speed repeat scans |
 
 ## Tagging and Organization
 
