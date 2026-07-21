@@ -19,6 +19,7 @@ import (
 	"github.com/simulot/immich-go/internal/filenames"
 	"github.com/simulot/immich-go/internal/fileprocessor"
 	"github.com/simulot/immich-go/internal/filters"
+	"github.com/simulot/immich-go/internal/gen/syncmap"
 	"github.com/simulot/immich-go/internal/gen/syncset"
 	"github.com/simulot/immich-go/internal/groups/burst"
 	"github.com/simulot/immich-go/internal/groups/epsonfastfoto"
@@ -80,6 +81,10 @@ type UpCmd struct {
 	tagsCache         *cache.CollectionCache[assets.Tag]   // List of tags present on the server
 	finished          bool                                 // the finish task has been run
 	infoCollector     *filenames.InfoCollector             // Collects information about the files being processed
+	checksumByFileKey *syncmap.SyncMap[checksumCacheFileKey, string]
+	checksumCacheHits int64
+	checksumCacheMiss int64
+	checksumHashCalls int64
 }
 
 func (uc *UpCmd) RegisterFlags(flags *pflag.FlagSet) {

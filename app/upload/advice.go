@@ -262,9 +262,25 @@ func (ii *immichIndex) adviceForceUpload(sa *assets.Asset) *Advice {
 // la.OriginalFileName is the name of the file as it was on the device before it was uploaded to the server
 
 func (ii *immichIndex) ShouldUpload(la *assets.Asset, upCmd *UpCmd) (*Advice, error) {
-	checksum, err := la.GetChecksum()
-	if err != nil {
-		return nil, err
+	checksum := la.Checksum
+	if checksum == "" && upCmd != nil {
+		if c, ok := upCmd.lookupChecksumFromCache(la); ok {
+			la.Checksum = c
+			checksum = c
+		}
+	}
+	if checksum == "" {
+		if upCmd != nil && la.Checksum == "" {
+			upCmd.countChecksumHashCall()
+		}
+		var err error
+		checksum, err = la.GetChecksum()
+		if err != nil {
+			return nil, err
+		}
+		if upCmd != nil {
+			upCmd.rememberChecksumForAsset(la, checksum)
+		}
 	}
 
 	if ii.isAlreadyProcessed(checksum) {

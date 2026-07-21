@@ -9,7 +9,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -178,8 +177,10 @@ func (uc *UpCmd) upload(ctx context.Context, adapter adapters.Reader) error {
 
 	runner := uc.runUI
 	uc.assetIndex = newAssetIndex()
+	uc.ensureChecksumCacheState()
+	uc.resetChecksumCacheMetrics()
 	if err := uc.loadChecksumCache(); err != nil {
-		uc.app.Log().Warn("failed to load checksum cache", "path", uc.ChecksumCachePath, "err", err)
+		return err
 	}
 
 	if uc.NoUI {
@@ -194,72 +195,6 @@ func (uc *UpCmd) upload(ctx context.Context, adapter adapters.Reader) error {
 	}
 	err := runner(ctx, uc.app)
 	return err
-}
-
-// loadChecksumCache preloads known checksums (uploaded or known server assets) from a user-provided file.
-// The cache is optional and opt-in via --checksum-cache <path>.
-func (uc *UpCmd) loadChecksumCache() error {
-	if uc.ChecksumCachePath == "" || uc.assetIndex == nil {
-		return nil
-	}
-	data, err := os.ReadFile(uc.ChecksumCachePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	added := 0
-	for _, l := range lines {
-		c := strings.TrimSpace(l)
-		if c == "" {
-			continue
-		}
-		if uc.assetIndex.uploadsChecksum.Add(c) {
-			added++
-		}
-	}
-	if added > 0 && uc.app != nil && uc.app.Log() != nil {
-		uc.app.Log().Info("preloaded checksum cache", "path", uc.ChecksumCachePath, "entries", added)
-	}
-	return nil
-}
-
-// saveChecksumCache persists known checksums to the user-provided file if enabled.
-// It saves both local-uploaded checksums and checksums of assets fetched from the server index.
-func (uc *UpCmd) saveChecksumCache() error {
-	if uc.ChecksumCachePath == "" || uc.assetIndex == nil {
-		return nil
-	}
-	dir := filepath.Dir(uc.ChecksumCachePath)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return err
-		}
-	}
-	tmp := uc.ChecksumCachePath + ".tmp"
-	set := map[string]struct{}{}
-	for _, c := range uc.assetIndex.uploadsChecksum.Items() {
-		set[c] = struct{}{}
-	}
-	uc.assetIndex.byChecksum.Range(func(key string, _ *assets.Asset) bool {
-		set[key] = struct{}{}
-		return true
-	})
-	items := make([]string, 0, len(set))
-	for c := range set {
-		items = append(items, c)
-	}
-	slices.Sort(items)
-	data := strings.Join(items, "\n")
-	if len(items) > 0 {
-		data += "\n"
-	}
-	if err := os.WriteFile(tmp, []byte(data), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, uc.ChecksumCachePath)
 }
 
 func (uc *UpCmd) getImmichAlbums(ctx context.Context) error {

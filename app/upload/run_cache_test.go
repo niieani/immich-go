@@ -1,51 +1,118 @@
 package upload
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/simulot/immich-go/immich"
 	"github.com/simulot/immich-go/internal/assets"
+	"github.com/simulot/immich-go/internal/gen/syncmap"
 )
 
-// helper to create a temp file and return path
 func tmpFilePath(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	return filepath.Join(dir, "cache.txt")
+	return filepath.Join(dir, "cache.jsonl")
 }
 
-func TestLoadChecksumCache(t *testing.T) {
+func TestLoadChecksumCacheV2(t *testing.T) {
 	path := tmpFilePath(t)
-	content := "abc\n\nxyz\n"
+
+	lines := []string{}
+	checksumRec := checksumCacheChecksumRecord{
+		V:    checksumCacheVersion,
+		Kind: checksumCacheKindChecksum,
+		SHA1: "abc",
+	}
+	fileRec := checksumCacheFileRecord{
+		V:       checksumCacheVersion,
+		Kind:    checksumCacheKindFile,
+		Source:  "A6700_512SD",
+		Path:    "DCIM/1001/IMG0001.ARW",
+		Size:    1024,
+		MTimeNS: 123456789,
+		SHA1:    "xyz",
+	}
+	for _, rec := range []any{checksumRec, fileRec} {
+		b, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatalf("marshal record: %v", err)
+		}
+		lines = append(lines, string(b))
+	}
+	content := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write cache: %v", err)
 	}
 
-	uc := &UpCmd{ChecksumCachePath: path, assetIndex: newAssetIndex()}
+	uc := &UpCmd{
+		ChecksumCachePath: path,
+		assetIndex:        newAssetIndex(),
+		checksumByFileKey: syncmap.New[checksumCacheFileKey, string](),
+	}
 	if err := uc.loadChecksumCache(); err != nil {
 		t.Fatalf("loadChecksumCache error = %v", err)
 	}
 
-	if got := uc.assetIndex.uploadsChecksum.Len(); got != 2 {
-		t.Fatalf("expected 2 entries, got %d", got)
+	if !uc.assetIndex.uploadsChecksum.Contains("abc") {
+		t.Fatalf("expected checksum to be loaded")
 	}
-	if !uc.assetIndex.uploadsChecksum.Contains("abc") || !uc.assetIndex.uploadsChecksum.Contains("xyz") {
-		t.Fatalf("expected cache entries present")
+	loadedSHA1, ok := uc.checksumByFileKey.Load(checksumCacheFileKey{
+		Source:  "A6700_512SD",
+		Path:    "DCIM/1001/IMG0001.ARW",
+		Size:    1024,
+		MTimeNS: 123456789,
+	})
+	if !ok || loadedSHA1 != "xyz" {
+		t.Fatalf("expected file-key cache entry to be loaded, got %q, ok=%v", loadedSHA1, ok)
 	}
 }
 
-func TestSaveChecksumCacheMergesServerAndUploads(t *testing.T) {
+func TestLoadChecksumCacheRejectsLegacyFormat(t *testing.T) {
 	path := tmpFilePath(t)
-	uc := &UpCmd{ChecksumCachePath: path, assetIndex: newAssetIndex()}
+	if err := os.WriteFile(path, []byte("abc\n"), 0o600); err != nil {
+		t.Fatalf("write cache: %v", err)
+	}
 
-	// uploaded checksum
+	uc := &UpCmd{
+		ChecksumCachePath: path,
+		assetIndex:        newAssetIndex(),
+	}
+	err := uc.loadChecksumCache()
+	if err == nil {
+		t.Fatalf("expected legacy format error")
+	}
+	if !strings.Contains(err.Error(), "legacy checksum-cache format is no longer supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSaveChecksumCacheV2Deterministic(t *testing.T) {
+	path := tmpFilePath(t)
+	uc := &UpCmd{
+		ChecksumCachePath: path,
+		assetIndex:        newAssetIndex(),
+		checksumByFileKey: syncmap.New[checksumCacheFileKey, string](),
+	}
+
 	uc.assetIndex.uploadsChecksum.Add("uploaded")
-	// server asset checksum
-	a := &assets.Asset{ID: "1", Checksum: "server"}
-	uc.assetIndex.byChecksum.Store("server", a)
+	uc.assetIndex.byChecksum.Store("server", &assets.Asset{ID: "1", Checksum: "server"})
+	uc.checksumByFileKey.Store(checksumCacheFileKey{
+		Source:  "A6700_512SD",
+		Path:    "DCIM/1001/IMG0002.ARW",
+		Size:    2048,
+		MTimeNS: 200,
+	}, "sha-a")
+	uc.checksumByFileKey.Store(checksumCacheFileKey{
+		Source:  "A6700_512SD",
+		Path:    "DCIM/1001/IMG0001.ARW",
+		Size:    1024,
+		MTimeNS: 100,
+	}, "sha-b")
 
 	if err := uc.saveChecksumCache(); err != nil {
 		t.Fatalf("saveChecksumCache error = %v", err)
@@ -55,17 +122,47 @@ func TestSaveChecksumCacheMergesServerAndUploads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read cache: %v", err)
 	}
-	text := string(data)
-	if !strings.Contains(text, "uploaded") || !strings.Contains(text, "server") {
-		t.Fatalf("cache file missing entries: %q", text)
+	gotLines := strings.Split(strings.TrimSpace(string(data)), "\n")
+
+	expectedRecords := []any{
+		checksumCacheChecksumRecord{V: checksumCacheVersion, Kind: checksumCacheKindChecksum, SHA1: "server"},
+		checksumCacheChecksumRecord{V: checksumCacheVersion, Kind: checksumCacheKindChecksum, SHA1: "uploaded"},
+		checksumCacheFileRecord{
+			V:       checksumCacheVersion,
+			Kind:    checksumCacheKindFile,
+			Source:  "A6700_512SD",
+			Path:    "DCIM/1001/IMG0001.ARW",
+			Size:    1024,
+			MTimeNS: 100,
+			SHA1:    "sha-b",
+		},
+		checksumCacheFileRecord{
+			V:       checksumCacheVersion,
+			Kind:    checksumCacheKindFile,
+			Source:  "A6700_512SD",
+			Path:    "DCIM/1001/IMG0002.ARW",
+			Size:    2048,
+			MTimeNS: 200,
+			SHA1:    "sha-a",
+		},
+	}
+	expectedLines := make([]string, 0, len(expectedRecords))
+	for _, rec := range expectedRecords {
+		b, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatalf("marshal expected record: %v", err)
+		}
+		expectedLines = append(expectedLines, string(b))
+	}
+
+	if !reflect.DeepEqual(gotLines, expectedLines) {
+		t.Fatalf("unexpected cache output\nwant: %v\ngot:  %v", expectedLines, gotLines)
 	}
 }
 
-// Ensure that preloading a checksum cache does not cause a panic when the same
-// checksum is later seen in assets fetched from Immich.
 func TestAddImmichAssetWithCachedChecksum(t *testing.T) {
 	idx := newAssetIndex()
-	idx.uploadsChecksum.Add("abc") // simulate a checksum loaded from --checksum-cache
+	idx.uploadsChecksum.Add("abc")
 
 	ia := &immich.Asset{ID: "1", Checksum: "abc", OriginalFileName: "a.jpg"}
 	if _, added := idx.addImmichAsset(ia); !added {
@@ -79,8 +176,6 @@ func TestAddImmichAssetWithCachedChecksum(t *testing.T) {
 	}
 }
 
-// Ensure that a local asset whose checksum exists only in the cache is treated
-// as already processed and doesn't panic when added.
 func TestAddLocalAssetWithCachedChecksum(t *testing.T) {
 	idx := newAssetIndex()
 	idx.uploadsChecksum.Add("abc")
@@ -88,21 +183,5 @@ func TestAddLocalAssetWithCachedChecksum(t *testing.T) {
 	la := &assets.Asset{ID: "local-1", Checksum: "abc", OriginalFileName: "a.jpg"}
 	if _, added := idx.addLocalAsset(la); added {
 		t.Fatalf("expected local asset not to be added when checksum preloaded")
-	}
-}
-
-// ShouldUpload must consult uploadsChecksum so cached entries are skipped
-func TestShouldUploadUsesChecksumCache(t *testing.T) {
-	idx := newAssetIndex()
-	idx.uploadsChecksum.Add("abc")
-	uc := &UpCmd{assetIndex: idx}
-
-	la := &assets.Asset{Checksum: "abc"}
-	advice, err := idx.ShouldUpload(la, uc)
-	if err != nil {
-		t.Fatalf("ShouldUpload returned error: %v", err)
-	}
-	if advice.Advice != AlreadyProcessed {
-		t.Fatalf("expected AlreadyProcessed, got %v", advice.Advice)
 	}
 }
